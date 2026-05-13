@@ -52,8 +52,12 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false)
   const [editingPhoto, setEditingPhoto] = useState<Photo | null>(null)
   const [selectedPhotos, setSelectedPhotos] = useState<Set<string>>(new Set())
-  const [bulkUploadFiles, setBulkUploadFiles] = useState<FileList | null>(null)
   const [showPasswordModal, setShowPasswordModal] = useState(false)
+  const [newPhotoUrl, setNewPhotoUrl] = useState('')
+  const [newPhotoTitle, setNewPhotoTitle] = useState('')
+  const [newPhotoDescription, setNewPhotoDescription] = useState('')
+  const [newPhotoCategory, setNewPhotoCategory] = useState('nunta')
+  const [newPhotoFeatured, setNewPhotoFeatured] = useState(false)
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: '',
     newPassword: '',
@@ -118,46 +122,41 @@ export default function AdminPage() {
     }
   }
 
-  // Photo upload handler
-  const handleUpload = async (files: FileList, category: string = 'nunta') => {
+  // Add photo by URL handler
+  const handleAddPhotoByUrl = async () => {
+    if (!newPhotoUrl.trim()) return
+
     setLoading(true)
 
     try {
-      const uploadPromises = Array.from(files).map(async (file) => {
-        const formData = new FormData()
-        formData.append('file', file)
-        formData.append('category', category)
-
-        const res = await fetch('/api/upload', {
-          method: 'POST',
-          body: formData,
-        })
-
-        return await res.json()
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: newPhotoUrl.trim(),
+          title: newPhotoTitle.trim() || undefined,
+          description: newPhotoDescription.trim() || undefined,
+          category: newPhotoCategory,
+          featured: newPhotoFeatured,
+        }),
       })
 
-      const uploads = await Promise.all(uploadPromises)
+      const data = await res.json()
 
-      // Create photo entries in database
-      for (const upload of uploads) {
-        if (upload.success) {
-          await fetch('/api/photos', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              filename: upload.filename,
-              url: upload.url,
-              category: upload.category,
-              tags: [],
-            }),
-          })
-        }
+      if (data.success) {
+        await fetchPhotos()
+        // Reset form
+        setNewPhotoUrl('')
+        setNewPhotoTitle('')
+        setNewPhotoDescription('')
+        setNewPhotoCategory('nunta')
+        setNewPhotoFeatured(false)
+      } else {
+        alert('Failed to add photo: ' + (data.error || 'Unknown error'))
       }
-
-      await fetchPhotos()
-      setBulkUploadFiles(null)
     } catch (error) {
-      console.error('Error uploading photos:', error)
+      console.error('Error adding photo:', error)
+      alert('Failed to add photo')
     } finally {
       setLoading(false)
     }
@@ -414,39 +413,75 @@ export default function AdminPage() {
           <div>
             {/* Upload Section */}
             <div className="bg-secondary rounded-lg p-6 mb-6">
-              <h2 className="text-xl font-bold text-primary mb-4">Upload Photos</h2>
-              <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-bold mb-2">Single Upload</label>
+              <h2 className="text-xl font-bold text-primary mb-4">Add Photo by URL</h2>
+              <p className="text-sm text-primary mb-4">
+                Upload your photos to an image hosting service (Imgur, Cloudinary, etc.) and paste the URL below.
+              </p>
+              <div className="grid md:grid-cols-2 gap-4 mb-4">
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-bold mb-2 text-primary">Image URL *</label>
                   <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => e.target.files && handleUpload(e.target.files)}
-                    className="w-full"
+                    type="url"
+                    value={newPhotoUrl}
+                    onChange={(e) => setNewPhotoUrl(e.target.value)}
+                    placeholder="https://i.imgur.com/abc123.jpg"
+                    className="w-full px-3 py-2 border rounded focus:outline-none focus:border-accent bg-white text-primary"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold mb-2">Bulk Upload</label>
+                  <label className="block text-sm font-bold mb-2 text-primary">Title</label>
                   <input
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={(e) => setBulkUploadFiles(e.target.files)}
-                    className="w-full"
+                    type="text"
+                    value={newPhotoTitle}
+                    onChange={(e) => setNewPhotoTitle(e.target.value)}
+                    placeholder="Photo title (optional)"
+                    className="w-full px-3 py-2 border rounded focus:outline-none focus:border-accent bg-white text-primary"
                   />
-                  {bulkUploadFiles && bulkUploadFiles.length > 0 && (
-                    <button
-                      onClick={() =>
-                        bulkUploadFiles && handleUpload(bulkUploadFiles)
-                      }
-                      disabled={loading}
-                      className="mt-2 bg-accent text-white px-4 py-2 rounded hover:bg-accent-hover disabled:opacity-50"
-                    >
-                      Upload {bulkUploadFiles.length} photos
-                    </button>
-                  )}
+                </div>
+                <div>
+                  <label className="block text-sm font-bold mb-2 text-primary">Category</label>
+                  <select
+                    value={newPhotoCategory}
+                    onChange={(e) => setNewPhotoCategory(e.target.value)}
+                    className="w-full px-3 py-2 border rounded focus:outline-none focus:border-accent bg-white text-primary"
+                  >
+                    <option value="nunta">Nuntă</option>
+                    <option value="botez">Botez</option>
+                    <option value="majorat">Majorat</option>
+                    <option value="sedinta">Sedintă Foto</option>
+                    <option value="eveniment">Eveniment</option>
+                  </select>
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-bold mb-2 text-primary">Description</label>
+                  <textarea
+                    value={newPhotoDescription}
+                    onChange={(e) => setNewPhotoDescription(e.target.value)}
+                    placeholder="Photo description (optional)"
+                    className="w-full px-3 py-2 border rounded focus:outline-none focus:border-accent bg-white text-primary"
+                    rows={2}
+                  />
                 </div>
               </div>
+              <div className="flex items-center gap-4 mb-4">
+                <label className="flex items-center gap-2 cursor-pointer text-primary">
+                  <input
+                    type="checkbox"
+                    checked={newPhotoFeatured}
+                    onChange={(e) => setNewPhotoFeatured(e.target.checked)}
+                    className="w-4 h-4"
+                  />
+                  <span className="font-bold">Featured photo</span>
+                </label>
+              </div>
+              <button
+                onClick={handleAddPhotoByUrl}
+                disabled={loading || !newPhotoUrl.trim()}
+                className="bg-accent text-white px-6 py-2 rounded hover:bg-accent-hover disabled:opacity-50 flex items-center gap-2"
+              >
+                <Plus size={18} />
+                Add Photo
+              </button>
             </div>
 
             {/* Bulk Actions */}
@@ -523,7 +558,7 @@ export default function AdminPage() {
         {activeTab === 'messages' && (
           <div className="bg-secondary rounded-lg">
             {messages.length === 0 ? (
-              <p className="text-center py-12 text-muted">No messages yet</p>
+              <p className="text-center py-12 text-primary/60">No messages yet</p>
             ) : (
               <div className="divide-y divide-steel">
                 {messages.map((msg) => (
@@ -534,9 +569,9 @@ export default function AdminPage() {
                     <div className="flex justify-between items-start mb-2">
                       <div>
                         <h3 className="font-bold text-primary">{msg.name}</h3>
-                        <p className="text-sm text-muted">{msg.email}</p>
+                        <p className="text-sm text-primary/70">{msg.email}</p>
                         {msg.phone && (
-                          <p className="text-sm text-muted">{msg.phone}</p>
+                          <p className="text-sm text-primary/70">{msg.phone}</p>
                         )}
                       </div>
                       <div className="flex items-center gap-2">
@@ -559,7 +594,7 @@ export default function AdminPage() {
                       <p className="font-bold text-primary mb-2">{msg.subject}</p>
                     )}
                     <p className="text-primary">{msg.message}</p>
-                    <p className="text-sm text-muted mt-2">
+                    <p className="text-sm text-primary/70 mt-2">
                       {new Date(msg.createdAt).toLocaleString('ro-RO')}
                     </p>
                   </div>
@@ -605,37 +640,37 @@ export default function AdminPage() {
                 />
 
                 <div>
-                  <label className="block text-sm font-bold mb-1">Title</label>
+                  <label className="block text-sm font-bold mb-1 text-primary">Title</label>
                   <input
                     type="text"
                     value={editingPhoto.title || ''}
                     onChange={(e) =>
                       setEditingPhoto({ ...editingPhoto, title: e.target.value })
                     }
-                    className="w-full px-3 py-2 border rounded"
+                    className="w-full px-3 py-2 border rounded bg-white text-primary"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-bold mb-1">Description</label>
+                  <label className="block text-sm font-bold mb-1 text-primary">Description</label>
                   <textarea
                     value={editingPhoto.description || ''}
                     onChange={(e) =>
                       setEditingPhoto({ ...editingPhoto, description: e.target.value })
                     }
-                    className="w-full px-3 py-2 border rounded"
+                    className="w-full px-3 py-2 border rounded bg-white text-primary"
                     rows={3}
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-bold mb-1">Category</label>
+                  <label className="block text-sm font-bold mb-1 text-primary">Category</label>
                   <select
                     value={editingPhoto.category}
                     onChange={(e) =>
                       setEditingPhoto({ ...editingPhoto, category: e.target.value })
                     }
-                    className="w-full px-3 py-2 border rounded"
+                    className="w-full px-3 py-2 border rounded bg-white text-primary"
                   >
                     <option value="nunta">Nuntă</option>
                     <option value="botez">Botez</option>
@@ -645,7 +680,7 @@ export default function AdminPage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-bold mb-1">Tags (comma separated)</label>
+                  <label className="block text-sm font-bold mb-1 text-primary">Tags (comma separated)</label>
                   <input
                     type="text"
                     value={editingPhoto.tags.map((t) => t.name).join(', ')}
@@ -658,7 +693,7 @@ export default function AdminPage() {
                           .map((name) => ({ id: name, name })),
                       })
                     }
-                    className="w-full px-3 py-2 border rounded"
+                    className="w-full px-3 py-2 border rounded bg-white text-primary"
                   />
                 </div>
 
@@ -672,7 +707,7 @@ export default function AdminPage() {
                     }
                     className="w-4 h-4"
                   />
-                  <label htmlFor="featured" className="font-bold">
+                  <label htmlFor="featured" className="font-bold text-primary">
                     Featured photo
                   </label>
                 </div>
@@ -744,7 +779,7 @@ export default function AdminPage() {
                 )}
 
                 <div>
-                  <label className="block text-sm font-bold mb-1">Current Password</label>
+                  <label className="block text-sm font-bold mb-1 text-primary">Current Password</label>
                   <input
                     type="password"
                     value={passwordForm.currentPassword}
@@ -752,12 +787,12 @@ export default function AdminPage() {
                       setPasswordForm({ ...passwordForm, currentPassword: e.target.value })
                     }
                     required
-                    className="w-full px-3 py-2 border rounded focus:outline-none focus:border-accent"
+                    className="w-full px-3 py-2 border rounded focus:outline-none focus:border-accent bg-white text-primary"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-bold mb-1">New Password</label>
+                  <label className="block text-sm font-bold mb-1 text-primary">New Password</label>
                   <input
                     type="password"
                     value={passwordForm.newPassword}
@@ -766,12 +801,12 @@ export default function AdminPage() {
                     }
                     required
                     minLength={6}
-                    className="w-full px-3 py-2 border rounded focus:outline-none focus:border-accent"
+                    className="w-full px-3 py-2 border rounded focus:outline-none focus:border-accent bg-white text-primary"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-bold mb-1">Confirm New Password</label>
+                  <label className="block text-sm font-bold mb-1 text-primary">Confirm New Password</label>
                   <input
                     type="password"
                     value={passwordForm.confirmPassword}
@@ -780,7 +815,7 @@ export default function AdminPage() {
                     }
                     required
                     minLength={6}
-                    className="w-full px-3 py-2 border rounded focus:outline-none focus:border-accent"
+                    className="w-full px-3 py-2 border rounded focus:outline-none focus:border-accent bg-white text-primary"
                   />
                 </div>
 
