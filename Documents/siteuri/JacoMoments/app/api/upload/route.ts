@@ -1,14 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { writeFile, mkdir } from 'fs/promises'
 import path from 'path'
 
-export const dynamic = 'force-dynamic'
-
-export async function POST(request: NextRequest) {
+export async function POST(req: NextRequest) {
   try {
-    const formData = await request.formData()
+    const formData = await req.formData()
     const file = formData.get('file') as File
-    const category = formData.get('category') as string || 'nunta'
+    const category = (formData.get('category') as string) || 'nunta'
 
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 })
@@ -17,30 +15,21 @@ export async function POST(request: NextRequest) {
     const bytes = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
 
-    // Create unique filename
-    const timestamp = Date.now()
-    const originalName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_')
-    const filename = `${timestamp}_${originalName}`
+    const ext = file.name.split('.').pop()
+    const filename = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${ext}`
 
-    // Ensure upload directory exists
     const uploadDir = path.join(process.cwd(), 'public', 'uploads', category)
     await mkdir(uploadDir, { recursive: true })
-
-    // Write file
-    const filepath = path.join(uploadDir, filename)
-    await writeFile(filepath, buffer)
-
-    // Return URLs
-    const url = `/uploads/${category}/${filename}`
+    await writeFile(path.join(uploadDir, filename), buffer)
 
     return NextResponse.json({
       success: true,
       filename,
-      url,
+      url: `/uploads/${category}/${filename}`,
       category,
     })
   } catch (error) {
-    console.error('Error uploading file:', error)
-    return NextResponse.json({ error: 'Failed to upload file' }, { status: 500 })
+    console.error('Upload error:', error)
+    return NextResponse.json({ error: 'Upload failed' }, { status: 500 })
   }
 }

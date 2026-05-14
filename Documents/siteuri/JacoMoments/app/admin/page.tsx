@@ -12,7 +12,6 @@ import {
   Check,
   LogOut,
   Plus,
-  Tag as TagIcon,
   Eye,
   EyeOff,
   KeyRound,
@@ -42,22 +41,32 @@ interface Message {
   createdAt: string
 }
 
+interface Package {
+  id: string
+  name: string
+  category: string
+  categoryTitle: string
+  price: number
+  duration: string
+  features: string[]
+  isPopular: boolean
+  order: number
+}
+
 export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [password, setPassword] = useState('')
   const [loginError, setLoginError] = useState('')
-  const [activeTab, setActiveTab] = useState<'photos' | 'messages'>('photos')
+  const [activeTab, setActiveTab] = useState<'photos' | 'messages' | 'pachete'>('photos')
   const [photos, setPhotos] = useState<Photo[]>([])
   const [messages, setMessages] = useState<Message[]>([])
+  const [packages, setPackages] = useState<Package[]>([])
+  const [editingPackage, setEditingPackage] = useState<Package | null>(null)
   const [loading, setLoading] = useState(false)
   const [editingPhoto, setEditingPhoto] = useState<Photo | null>(null)
   const [selectedPhotos, setSelectedPhotos] = useState<Set<string>>(new Set())
+  const [bulkUploadFiles, setBulkUploadFiles] = useState<FileList | null>(null)
   const [showPasswordModal, setShowPasswordModal] = useState(false)
-  const [newPhotoUrl, setNewPhotoUrl] = useState('')
-  const [newPhotoTitle, setNewPhotoTitle] = useState('')
-  const [newPhotoDescription, setNewPhotoDescription] = useState('')
-  const [newPhotoCategory, setNewPhotoCategory] = useState('nunta')
-  const [newPhotoFeatured, setNewPhotoFeatured] = useState(false)
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: '',
     newPassword: '',
@@ -77,6 +86,17 @@ export default function AdminPage() {
     }
   }
 
+  // Fetch packages
+  const fetchPackages = async () => {
+    try {
+      const res = await fetch('/api/packages')
+      const data = await res.json()
+      setPackages(data)
+    } catch (error) {
+      console.error('Error fetching packages:', error)
+    }
+  }
+
   // Fetch messages
   const fetchMessages = async () => {
     try {
@@ -92,8 +112,35 @@ export default function AdminPage() {
     if (isAuthenticated) {
       fetchPhotos()
       fetchMessages()
+      fetchPackages()
     }
   }, [isAuthenticated])
+
+  // Update package
+  const handleUpdatePackage = async (pkg: Package) => {
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/packages/${pkg.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: pkg.name,
+          price: pkg.price,
+          duration: pkg.duration,
+          features: pkg.features,
+          isPopular: pkg.isPopular,
+        }),
+      })
+      if (res.ok) {
+        await fetchPackages()
+        setEditingPackage(null)
+      }
+    } catch (error) {
+      console.error('Error updating package:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   // Login handler
   const handleLogin = async (e: React.FormEvent) => {
@@ -122,41 +169,46 @@ export default function AdminPage() {
     }
   }
 
-  // Add photo by URL handler
-  const handleAddPhotoByUrl = async () => {
-    if (!newPhotoUrl.trim()) return
-
+  // Photo upload handler
+  const handleUpload = async (files: FileList, category: string = 'nunta') => {
     setLoading(true)
 
     try {
-      const res = await fetch('/api/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          url: newPhotoUrl.trim(),
-          title: newPhotoTitle.trim() || undefined,
-          description: newPhotoDescription.trim() || undefined,
-          category: newPhotoCategory,
-          featured: newPhotoFeatured,
-        }),
+      const uploadPromises = Array.from(files).map(async (file) => {
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('category', category)
+
+        const res = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        })
+
+        return await res.json()
       })
 
-      const data = await res.json()
+      const uploads = await Promise.all(uploadPromises)
 
-      if (data.success) {
-        await fetchPhotos()
-        // Reset form
-        setNewPhotoUrl('')
-        setNewPhotoTitle('')
-        setNewPhotoDescription('')
-        setNewPhotoCategory('nunta')
-        setNewPhotoFeatured(false)
-      } else {
-        alert('Failed to add photo: ' + (data.error || 'Unknown error'))
+      // Create photo entries in database
+      for (const upload of uploads) {
+        if (upload.success) {
+          await fetch('/api/photos', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              filename: upload.filename,
+              url: upload.url,
+              category: upload.category,
+              tags: [],
+            }),
+          })
+        }
       }
+
+      await fetchPhotos()
+      setBulkUploadFiles(null)
     } catch (error) {
-      console.error('Error adding photo:', error)
-      alert('Failed to add photo')
+      console.error('Error uploading photos:', error)
     } finally {
       setLoading(false)
     }
@@ -404,6 +456,16 @@ export default function AdminPage() {
               </span>
             )}
           </button>
+          <button
+            onClick={() => setActiveTab('pachete')}
+            className={`px-6 py-4 font-bold flex items-center gap-2 transition-colors ${
+              activeTab === 'pachete'
+                ? 'text-accent border-b-2 border-accent'
+                : 'text-primary hover:text-accent'
+            }`}
+          >
+            Pachete
+          </button>
         </div>
       </div>
 
@@ -413,75 +475,39 @@ export default function AdminPage() {
           <div>
             {/* Upload Section */}
             <div className="bg-secondary rounded-lg p-6 mb-6">
-              <h2 className="text-xl font-bold text-primary mb-4">Add Photo by URL</h2>
-              <p className="text-sm text-primary mb-4">
-                Upload your photos to an image hosting service (Imgur, Cloudinary, etc.) and paste the URL below.
-              </p>
-              <div className="grid md:grid-cols-2 gap-4 mb-4">
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-bold mb-2 text-primary">Image URL *</label>
+              <h2 className="text-xl font-bold text-primary mb-4">Upload Photos</h2>
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold mb-2">Single Upload</label>
                   <input
-                    type="url"
-                    value={newPhotoUrl}
-                    onChange={(e) => setNewPhotoUrl(e.target.value)}
-                    placeholder="https://i.imgur.com/abc123.jpg"
-                    className="w-full px-3 py-2 border rounded focus:outline-none focus:border-accent bg-white text-primary"
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => e.target.files && handleUpload(e.target.files)}
+                    className="w-full"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold mb-2 text-primary">Title</label>
+                  <label className="block text-sm font-bold mb-2">Bulk Upload</label>
                   <input
-                    type="text"
-                    value={newPhotoTitle}
-                    onChange={(e) => setNewPhotoTitle(e.target.value)}
-                    placeholder="Photo title (optional)"
-                    className="w-full px-3 py-2 border rounded focus:outline-none focus:border-accent bg-white text-primary"
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => setBulkUploadFiles(e.target.files)}
+                    className="w-full"
                   />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold mb-2 text-primary">Category</label>
-                  <select
-                    value={newPhotoCategory}
-                    onChange={(e) => setNewPhotoCategory(e.target.value)}
-                    className="w-full px-3 py-2 border rounded focus:outline-none focus:border-accent bg-white text-primary"
-                  >
-                    <option value="nunta">Nuntă</option>
-                    <option value="botez">Botez</option>
-                    <option value="majorat">Majorat</option>
-                    <option value="sedinta">Sedintă Foto</option>
-                    <option value="eveniment">Eveniment</option>
-                  </select>
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-bold mb-2 text-primary">Description</label>
-                  <textarea
-                    value={newPhotoDescription}
-                    onChange={(e) => setNewPhotoDescription(e.target.value)}
-                    placeholder="Photo description (optional)"
-                    className="w-full px-3 py-2 border rounded focus:outline-none focus:border-accent bg-white text-primary"
-                    rows={2}
-                  />
+                  {bulkUploadFiles && bulkUploadFiles.length > 0 && (
+                    <button
+                      onClick={() =>
+                        bulkUploadFiles && handleUpload(bulkUploadFiles)
+                      }
+                      disabled={loading}
+                      className="mt-2 bg-accent text-white px-4 py-2 rounded hover:bg-accent-hover disabled:opacity-50"
+                    >
+                      Upload {bulkUploadFiles.length} photos
+                    </button>
+                  )}
                 </div>
               </div>
-              <div className="flex items-center gap-4 mb-4">
-                <label className="flex items-center gap-2 cursor-pointer text-primary">
-                  <input
-                    type="checkbox"
-                    checked={newPhotoFeatured}
-                    onChange={(e) => setNewPhotoFeatured(e.target.checked)}
-                    className="w-4 h-4"
-                  />
-                  <span className="font-bold">Featured photo</span>
-                </label>
-              </div>
-              <button
-                onClick={handleAddPhotoByUrl}
-                disabled={loading || !newPhotoUrl.trim()}
-                className="bg-accent text-white px-6 py-2 rounded hover:bg-accent-hover disabled:opacity-50 flex items-center gap-2"
-              >
-                <Plus size={18} />
-                Add Photo
-              </button>
             </div>
 
             {/* Bulk Actions */}
@@ -558,7 +584,7 @@ export default function AdminPage() {
         {activeTab === 'messages' && (
           <div className="bg-secondary rounded-lg">
             {messages.length === 0 ? (
-              <p className="text-center py-12 text-primary/60">No messages yet</p>
+              <p className="text-center py-12 text-muted">No messages yet</p>
             ) : (
               <div className="divide-y divide-steel">
                 {messages.map((msg) => (
@@ -569,9 +595,9 @@ export default function AdminPage() {
                     <div className="flex justify-between items-start mb-2">
                       <div>
                         <h3 className="font-bold text-primary">{msg.name}</h3>
-                        <p className="text-sm text-primary/70">{msg.email}</p>
+                        <p className="text-sm text-muted">{msg.email}</p>
                         {msg.phone && (
-                          <p className="text-sm text-primary/70">{msg.phone}</p>
+                          <p className="text-sm text-muted">{msg.phone}</p>
                         )}
                       </div>
                       <div className="flex items-center gap-2">
@@ -594,13 +620,62 @@ export default function AdminPage() {
                       <p className="font-bold text-primary mb-2">{msg.subject}</p>
                     )}
                     <p className="text-primary">{msg.message}</p>
-                    <p className="text-sm text-primary/70 mt-2">
+                    <p className="text-sm text-muted mt-2">
                       {new Date(msg.createdAt).toLocaleString('ro-RO')}
                     </p>
                   </div>
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Pachete Tab */}
+        {activeTab === 'pachete' && (
+          <div className="space-y-8">
+            {(['sedinteFoto', 'botezuri', 'nunti', 'evenimente'] as const).map((cat) => {
+              const catPackages = packages.filter((p) => p.category === cat)
+              if (catPackages.length === 0) return null
+              return (
+                <div key={cat}>
+                  <h2 className="text-xl font-bold text-secondary mb-4">
+                    {catPackages[0].categoryTitle}
+                  </h2>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    {catPackages.map((pkg) => (
+                      <div
+                        key={pkg.id}
+                        className="bg-secondary rounded-lg p-6 relative"
+                      >
+                        {pkg.isPopular && (
+                          <span className="absolute top-4 right-4 bg-accent text-white text-xs px-2 py-1 rounded-full">
+                            Popular
+                          </span>
+                        )}
+                        <h3 className="font-bold text-primary text-lg mb-1">{pkg.name}</h3>
+                        <p className="text-accent font-bold text-2xl mb-1">{pkg.price} €</p>
+                        <p className="text-muted text-sm mb-3">{pkg.duration}</p>
+                        <ul className="space-y-1 mb-4">
+                          {pkg.features.map((f, i) => (
+                            <li key={i} className="text-primary text-sm flex items-start gap-2">
+                              <Check size={14} className="text-accent mt-0.5 shrink-0" />
+                              {f}
+                            </li>
+                          ))}
+                        </ul>
+                        <button
+                          onClick={() => setEditingPackage({ ...pkg })}
+                          className="flex items-center gap-2 px-4 py-2 border border-accent text-accent rounded hover:bg-accent hover:text-white transition-colors text-sm font-bold"
+                        >
+                          <Edit size={14} />
+                          Editează
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
@@ -640,61 +715,43 @@ export default function AdminPage() {
                 />
 
                 <div>
-                  <label className="block text-sm font-bold mb-1 text-primary">Title</label>
+                  <label className="block text-sm font-bold mb-1">Title</label>
                   <input
                     type="text"
                     value={editingPhoto.title || ''}
                     onChange={(e) =>
                       setEditingPhoto({ ...editingPhoto, title: e.target.value })
                     }
-                    className="w-full px-3 py-2 border rounded bg-white text-primary"
+                    className="w-full px-3 py-2 border rounded"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-bold mb-1 text-primary">Description</label>
+                  <label className="block text-sm font-bold mb-1">Description</label>
                   <textarea
                     value={editingPhoto.description || ''}
                     onChange={(e) =>
                       setEditingPhoto({ ...editingPhoto, description: e.target.value })
                     }
-                    className="w-full px-3 py-2 border rounded bg-white text-primary"
+                    className="w-full px-3 py-2 border rounded"
                     rows={3}
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-bold mb-1 text-primary">Category</label>
+                  <label className="block text-sm font-bold mb-1">Category</label>
                   <select
                     value={editingPhoto.category}
                     onChange={(e) =>
                       setEditingPhoto({ ...editingPhoto, category: e.target.value })
                     }
-                    className="w-full px-3 py-2 border rounded bg-white text-primary"
+                    className="w-full px-3 py-2 border rounded"
                   >
                     <option value="nunta">Nuntă</option>
                     <option value="botez">Botez</option>
                     <option value="sedinta">Sedintă Foto</option>
                     <option value="eveniment">Eveniment</option>
                   </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-bold mb-1 text-primary">Tags (comma separated)</label>
-                  <input
-                    type="text"
-                    value={editingPhoto.tags.map((t) => t.name).join(', ')}
-                    onChange={(e) =>
-                      setEditingPhoto({
-                        ...editingPhoto,
-                        tags: e.target.value
-                          .split(',')
-                          .filter((t) => t.trim())
-                          .map((name) => ({ id: name, name })),
-                      })
-                    }
-                    className="w-full px-3 py-2 border rounded bg-white text-primary"
-                  />
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -707,7 +764,7 @@ export default function AdminPage() {
                     }
                     className="w-4 h-4"
                   />
-                  <label htmlFor="featured" className="font-bold text-primary">
+                  <label htmlFor="featured" className="font-bold">
                     Featured photo
                   </label>
                 </div>
@@ -725,6 +782,150 @@ export default function AdminPage() {
                     className="px-4 py-2 bg-accent text-white rounded hover:bg-accent-hover disabled:opacity-50"
                   >
                     Save Changes
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Edit Package Modal */}
+      <AnimatePresence>
+        {editingPackage && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
+            onClick={() => setEditingPackage(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-secondary rounded-lg p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold text-primary">
+                  Editează Pachet — {editingPackage.categoryTitle}
+                </h2>
+                <button
+                  onClick={() => setEditingPackage(null)}
+                  className="p-2 hover:bg-gray-100 rounded"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-bold mb-1">Nume pachet</label>
+                  <input
+                    type="text"
+                    value={editingPackage.name}
+                    onChange={(e) =>
+                      setEditingPackage({ ...editingPackage, name: e.target.value })
+                    }
+                    className="w-full px-3 py-2 border rounded"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold mb-1">Preț (€)</label>
+                  <input
+                    type="number"
+                    value={editingPackage.price}
+                    onChange={(e) =>
+                      setEditingPackage({ ...editingPackage, price: Number(e.target.value) })
+                    }
+                    className="w-full px-3 py-2 border rounded"
+                    min={0}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold mb-1">Durată</label>
+                  <input
+                    type="text"
+                    value={editingPackage.duration}
+                    onChange={(e) =>
+                      setEditingPackage({ ...editingPackage, duration: e.target.value })
+                    }
+                    className="w-full px-3 py-2 border rounded"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold mb-2">Ce include</label>
+                  <div className="space-y-2">
+                    {editingPackage.features.map((feat, idx) => (
+                      <div key={idx} className="flex gap-2">
+                        <input
+                          type="text"
+                          value={feat}
+                          onChange={(e) => {
+                            const newFeatures = [...editingPackage.features]
+                            newFeatures[idx] = e.target.value
+                            setEditingPackage({ ...editingPackage, features: newFeatures })
+                          }}
+                          className="flex-1 px-3 py-2 border rounded text-sm"
+                        />
+                        <button
+                          onClick={() => {
+                            const newFeatures = editingPackage.features.filter((_, i) => i !== idx)
+                            setEditingPackage({ ...editingPackage, features: newFeatures })
+                          }}
+                          className="p-2 text-red-500 hover:bg-red-50 rounded"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      onClick={() =>
+                        setEditingPackage({
+                          ...editingPackage,
+                          features: [...editingPackage.features, ''],
+                        })
+                      }
+                      className="flex items-center gap-2 text-sm text-accent hover:underline"
+                    >
+                      <Plus size={14} />
+                      Adaugă linie
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="pkgPopular"
+                    checked={editingPackage.isPopular}
+                    onChange={(e) =>
+                      setEditingPackage({ ...editingPackage, isPopular: e.target.checked })
+                    }
+                    className="w-4 h-4"
+                  />
+                  <label htmlFor="pkgPopular" className="font-bold text-sm">
+                    Marchează ca Popular
+                  </label>
+                </div>
+
+                <div className="flex justify-end gap-3 pt-4">
+                  <button
+                    onClick={() => setEditingPackage(null)}
+                    className="px-4 py-2 border rounded hover:bg-gray-100"
+                  >
+                    Anulează
+                  </button>
+                  <button
+                    onClick={() => handleUpdatePackage(editingPackage)}
+                    disabled={loading}
+                    className="px-4 py-2 bg-accent text-white rounded hover:bg-accent-hover disabled:opacity-50"
+                  >
+                    {loading ? 'Se salvează...' : 'Salvează'}
                   </button>
                 </div>
               </div>
@@ -779,7 +980,7 @@ export default function AdminPage() {
                 )}
 
                 <div>
-                  <label className="block text-sm font-bold mb-1 text-primary">Current Password</label>
+                  <label className="block text-sm font-bold mb-1">Current Password</label>
                   <input
                     type="password"
                     value={passwordForm.currentPassword}
@@ -787,12 +988,12 @@ export default function AdminPage() {
                       setPasswordForm({ ...passwordForm, currentPassword: e.target.value })
                     }
                     required
-                    className="w-full px-3 py-2 border rounded focus:outline-none focus:border-accent bg-white text-primary"
+                    className="w-full px-3 py-2 border rounded focus:outline-none focus:border-accent"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-bold mb-1 text-primary">New Password</label>
+                  <label className="block text-sm font-bold mb-1">New Password</label>
                   <input
                     type="password"
                     value={passwordForm.newPassword}
@@ -801,12 +1002,12 @@ export default function AdminPage() {
                     }
                     required
                     minLength={6}
-                    className="w-full px-3 py-2 border rounded focus:outline-none focus:border-accent bg-white text-primary"
+                    className="w-full px-3 py-2 border rounded focus:outline-none focus:border-accent"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-bold mb-1 text-primary">Confirm New Password</label>
+                  <label className="block text-sm font-bold mb-1">Confirm New Password</label>
                   <input
                     type="password"
                     value={passwordForm.confirmPassword}
@@ -815,7 +1016,7 @@ export default function AdminPage() {
                     }
                     required
                     minLength={6}
-                    className="w-full px-3 py-2 border rounded focus:outline-none focus:border-accent bg-white text-primary"
+                    className="w-full px-3 py-2 border rounded focus:outline-none focus:border-accent"
                   />
                 </div>
 

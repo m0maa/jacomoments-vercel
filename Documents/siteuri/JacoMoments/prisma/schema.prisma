@@ -45,3 +45,16 @@ model Admin {
   username String @unique
   password String
 }
+
+model Package {
+  id            String   @id
+  name          String
+  category      String
+  categoryTitle String
+  price         Int
+  duration      String
+  features      String
+  isPopular     Boolean  @default(false)
+  order         Int      @default(0)
+  updatedAt     DateTime @updatedAt
+}

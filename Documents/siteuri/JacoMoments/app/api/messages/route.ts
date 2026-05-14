@@ -1,45 +1,27 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 
-export const dynamic = 'force-dynamic'
-
-// GET all messages
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const messages = await prisma.message.findMany({
       orderBy: { createdAt: 'desc' },
     })
-
     return NextResponse.json(messages)
-  } catch (error) {
-    console.error('Error fetching messages:', error)
-    return NextResponse.json({ error: 'Failed to fetch messages' }, { status: 500 })
+  } catch {
+    return NextResponse.json([])
   }
 }
 
-// POST new message (from contact form)
-export async function POST(request: NextRequest) {
+export async function POST(req: NextRequest) {
   try {
-    const body = await request.json()
-    const { name, email, phone, subject, message } = body
+    const { name, email, phone, subject, message } = await req.json()
 
-    if (!name || !email || !message) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
-    }
-
-    const newMessage = await prisma.message.create({
-      data: {
-        name,
-        email,
-        phone: phone || null,
-        subject: subject || null,
-        message,
-      },
+    const saved = await prisma.message.create({
+      data: { name, email, phone, subject, message },
     })
 
-    return NextResponse.json({ success: true, message: newMessage })
-  } catch (error) {
-    console.error('Error creating message:', error)
-    return NextResponse.json({ error: 'Failed to create message' }, { status: 500 })
+    return NextResponse.json({ success: true, id: saved.id })
+  } catch {
+    return NextResponse.json({ error: 'Failed to save message' }, { status: 500 })
   }
 }
